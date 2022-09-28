@@ -14,7 +14,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#define MYPORT "4950"    // the port users will be connecting to
+//#define MYPORT "4950"    // the port users will be connecting to
 
 #define MAXBUFLEN 100
 
@@ -28,7 +28,7 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(void)
+int main(int argc,char* argv[])
 {
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
@@ -44,7 +44,7 @@ int main(void)
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
-    if ((rv = getaddrinfo(NULL, MYPORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
@@ -82,11 +82,6 @@ int main(void)
         exit(1);
     }
 
-    printf("server: got packet from %s\n",
-        inet_ntop(their_addr.ss_family,
-            get_in_addr((struct sockaddr *)&their_addr),
-            s, sizeof s));
-    printf("server: packet is %d bytes long\n", numbytes);
     buf[numbytes] = '\0';
     printf("server: packet contains \"%s\"\n", buf);
     
@@ -99,6 +94,15 @@ int main(void)
             exit(1);
         }
     }
+    else{
+        printf("server: return message \"no\"\n");
+        if ((numbytes = sendto(sockfd, "no", 3, 0,
+            (struct sockaddr *)&their_addr, addr_len)) == -1){
+            perror("server: sendto");
+            exit(1);
+        }
+    }
+
 
     close(sockfd);
 

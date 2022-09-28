@@ -14,7 +14,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#define SERVERPORT "4950"    // the port users will be connecting to
+//#define SERVERPORT "4950"    // the port users will be connecting to
 
 int main(int argc, char *argv[])
 {
@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
     hints.ai_family = AF_INET; // set to AF_INET to use IPv4
     hints.ai_socktype = SOCK_DGRAM;
 
-    if ((rv = getaddrinfo(argv[1], SERVERPORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(argv[1], argv[2], &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
@@ -52,38 +52,45 @@ int main(int argc, char *argv[])
         fprintf(stderr, "client: failed to create socket\n");
         return 2;
     }
+    char cmd[128];
+    char filename[128];
+    scanf("%s %s",cmd,filename);
+    if(!strcmp("ftp",cmd)){
+	if(access(filename, F_OK) == 0){
+		//file does exist
+	    if ((numbytes = sendto(sockfd, "ftp", 3, 0, p->ai_addr, p->ai_addrlen)) == -1) {
+		perror("client: sendto");
+		exit(1);
+	    }
 
-    if ((numbytes = sendto(sockfd, argv[2], strlen(argv[2]), 0,
-             p->ai_addr, p->ai_addrlen)) == -1) {
-        perror("client: sendto");
-        exit(1);
+	    char response[4];
+	    socklen_t addr_len = sizeof p->ai_addr;
+	    if ((numbytes = recvfrom(sockfd, response, 3 , 0,
+		p->ai_addr, &addr_len)) == -1){
+		perror("recvfrom");
+		exit(1);
+	    }
+	    response[numbytes] = '\0';
+	    if (!strcmp(response, "yes")){
+		printf("A file transfer can start\n");
+	    }
+	    else{ // no
+		exit(1); 
+	    }
+	}
+	else{
+		//file doesnt exist
+		printf("File doesnt exist\n");
+		exit(1);
+	}
+    }
+    else{
+	    perror("command: invalid");
+	    exit(1);
     }
 
     freeaddrinfo(servinfo);
-
-    printf("client: sent %d bytes to %s\n", numbytes, argv[1]);
     close(sockfd);
-
-    char response[4];
-
-    socklen_t addr_len = sizeof p->ai_addr;
-    if ((numbytes = recvfrom(sockfd, response, 3 , 0,
-        p->ai_addr, &addr_len)) == -1){
-        perror("recvfrom");
-        exit(1);
-    }
-
-    printf("client: packet is %d bytes long\n", numbytes);
-    response[numbytes] = '\0';
-    printf("client: packet contains \"%s\"\n", response);
-    
-    char yes[] = "yes";
-    if (!strcmp(response, yes)){
-        printf("A file transfer can start");
-    }
-    else{ // no
-        exit(1); 
-    }
     return 0;
 }
 
