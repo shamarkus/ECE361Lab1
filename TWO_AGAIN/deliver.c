@@ -125,7 +125,7 @@ void ftp(int sockfd,struct addrinfo *p,char* filename){
 	int sz = ftell(f);
 	rewind(f);
 	Packet->total_frag = ((int) (sz - 1)/1000) + 1;
-	Packet->filename,filename);
+	Packet->filename = filename;
 	Packet->frag_no = 1;
 
 	int numbytes = 0,ack_recv = 1;
@@ -156,7 +156,7 @@ void ftp(int sockfd,struct addrinfo *p,char* filename){
 			exit(1);
 		}
 
-		if(numbytes > 0 && Frame->sq_no == 0 && Frame->recv.ack == Packet->frag_no){
+		if(numbytes > 0 && Frame->sq_no == 0 && Frame->ack == Packet->frag_no){
 			printf("ACK Received for Packet #%d\n",Packet->frag_no);
 			ack_recv = 1;
 		}
