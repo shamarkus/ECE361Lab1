@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
     }
     char cmd[128];
     char filename[128];
-    // printf("Enter \"ftp\" followed by filename: ");
+    printf("Enter \"ftp\" followed by filename: ");
     scanf("%s %s",cmd,filename);
     if(!strcmp("ftp",cmd)){
 	if(access(filename, F_OK) == 0){

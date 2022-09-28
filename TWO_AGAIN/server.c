@@ -143,7 +143,7 @@ void ftp(int sockfd,struct sockaddr_storage* their_addr){
 		}
 		char colonChar = 0,delimitedTokens[128];
 		int inc = 1;
-		char* bufHead = packetBuf, bufPrev = packetBuf;
+		char* bufHead = packetBuf, *bufPrev = packetBuf;
 		while(colonChar != 4){
 			if(*bufHead == ':'){
 				colonChar++;
@@ -172,19 +172,23 @@ void ftp(int sockfd,struct sockaddr_storage* their_addr){
 			inc++;
 			bufHead++;
 		}
+		printf("%d\n%d\n%d\n%s\n\n",Packet->total_frag, Packet->frag_no, Packet->size, Packet->filename);
 		if(f == NULL){
 			sprintf(delimitedTokens,"./sent/%s",Packet->filename);
 			f = fopen(delimitedTokens,"wb");
 		}
-		fwrite(bufHead,Packet->size,1,f);
+		fwrite(bufHead,1,Packet->size,f);
 	
 		Frame->sq_no = 0;
 		Frame->ack = Packet->frag_no;
 
-		if ((numbytes = sendto(sockfd, Frame, sizeof(struct frame), 0, (struct sockaddr *)&(*their_addr), addr_len)) == -1){
+		if ((numbytes = sendto(sockfd,(struct frame*) Frame, sizeof(struct frame), 0, (struct sockaddr *)&(*their_addr), addr_len)) == -1){
 		    perror("server: sendto");
 		    exit(1);
 		}
-    }
+		
+		if(Packet->total_frag == Packet->frag_no) break;
+	}
+	fclose(f);
 }
 
