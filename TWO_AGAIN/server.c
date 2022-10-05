@@ -141,24 +141,27 @@ void ftp(int sockfd,struct sockaddr_storage* their_addr){
 			perror("recvfrom");
 			exit(1);
 		}
+		// printf("\n\n");
+		// printf(packetBuf);
+		// printf("\n\n");
 		char colonChar = 0,delimitedTokens[128];
-		int inc = 1;
+		int inc = 0;
 		char* bufHead = packetBuf, *bufPrev = packetBuf;
 		while(colonChar != 4){
 			if(*bufHead == ':'){
 				colonChar++;
 				if(colonChar == 1){
-					memcpy(delimitedTokens, bufPrev,inc - 1);
+					memcpy(delimitedTokens, bufPrev,inc);
 					delimitedTokens[inc] = '\0';
 					Packet->total_frag = atoi(delimitedTokens);
 				}
 				else if(colonChar == 2){
-					memcpy(delimitedTokens, bufPrev,inc - 1);
+					memcpy(delimitedTokens, bufPrev,inc);
 					delimitedTokens[inc] = '\0';
 					Packet->frag_no = atoi(delimitedTokens);
 				}
 				else if(colonChar == 3){
-					memcpy(delimitedTokens, bufPrev,inc - 1);
+					memcpy(delimitedTokens, bufPrev,inc);
 					delimitedTokens[inc] = '\0';
 					Packet->size = atoi(delimitedTokens);
 				}
@@ -172,7 +175,9 @@ void ftp(int sockfd,struct sockaddr_storage* their_addr){
 			inc++;
 			bufHead++;
 		}
-		printf("%d\n%d\n%d\n%s\n\n",Packet->total_frag, Packet->frag_no, Packet->size, Packet->filename);
+		
+		// printf("\n\n%d\n%d\n%d\n%s\n\n",Packet->total_frag, Packet->frag_no, Packet->size, Packet->filename);
+
 		if(f == NULL){
 			sprintf(delimitedTokens,"./sent/%s",Packet->filename);
 			f = fopen(delimitedTokens,"wb");
