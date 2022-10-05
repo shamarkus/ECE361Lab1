@@ -14,13 +14,12 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#define MYPORT "4950"    // the port users will be connecting to
+//#define MYPORT "4950"    // the port users will be connecting to
 
-#define MAXBUFLEN 1200
+#define MAX_PACKET_BUFFER_SIZE 1500
 
-void *get_in_addr(struct sockaddr *sa);
-
-//packet Information
+void ftp(int sockfd,struct sockaddr_storage* their_addr);
+// get sockaddr, IPv4 or IPv6:
 struct packet{
 	unsigned int total_frag;
 
@@ -30,7 +29,12 @@ struct packet{
 	char filedata[1000];
 };
 
-// get sockaddr, IPv4 or IPv6:
+struct frame{
+	int frame_kind;
+	int sq_no;
+	int ack;
+};
+
 void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET) {
@@ -40,15 +44,14 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-
-int main(void)
+int main(int argc,char* argv[])
 {
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
     int rv;
     int numbytes;
     struct sockaddr_storage their_addr;
-    char buf[MAXBUFLEN];
+    char buf[MAX_PACKET_BUFFER_SIZE];
     socklen_t addr_len;
     char s[INET6_ADDRSTRLEN];
 
@@ -57,7 +60,7 @@ int main(void)
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
-    if ((rv = getaddrinfo(NULL, MYPORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
@@ -88,38 +91,109 @@ int main(void)
 
     printf("server: waiting to recvfrom...\n");
 
-	FILE* f = NULL;
-	while(1){
-	    addr_len = sizeof their_addr;
-	    if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
-		perror("recvfrom");
-		exit(1);
-	    }
+    addr_len = sizeof their_addr;
+    if ((numbytes = recvfrom(sockfd, buf,MAX_PACKET_BUFFER_SIZE-1 , 0,
+        (struct sockaddr *)&their_addr, &addr_len)) == -1) {
+        perror("recvfrom");
+        exit(1);
+    }
 
-	    char* total_frag = strtok(buf,":");
-	    char* frag_no = strtok(NULL,":");
-	    char* bufSize = strtok(NULL,":");
-	    char* filename = strtok(NULL,":");
-	    char* fileData = strtok(NULL,":");
+    buf[numbytes] = '\0';
+    printf("server: packet contains \"%s\"\n", buf);
+    
+    if (!strcmp(buf, "ftp")){
+        printf("server: return message \"yes\"\n");
+        if ((numbytes = sendto(sockfd, "yes", 3, 0,
+            (struct sockaddr *)&their_addr, addr_len)) == -1){
+            perror("server: sendto");
+            exit(1);
+        }
 
-	    if(f == NULL){
-		    char temp[128];
-		    sprintf(temp,"TEMP-%s",filename);
-		    f = fopen(temp,"wb");
-	    }
-		fwrite(fileData,atoi(bufSize),1,f);
+	ftp(sockfd,&their_addr);
+    }
+    else{
+        printf("server: return message \"no\"\n");
+        if ((numbytes = sendto(sockfd, "no", 3, 0,
+            (struct sockaddr *)&their_addr, addr_len)) == -1){
+            perror("server: sendto");
+            exit(1);
+        }
+    }
 
-		printf("server: got packet from %s\n", inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s));
-		if ((numbytes = sendto(sockfd, "1", 1, 0,
-		(struct sockaddr *)&their_addr, addr_len)) == -1){
-		perror("server: sendto");
-		exit(1);
-		}
-
-		if(!strcmp(frag_no,total_frag)) break;
-       }
 
     close(sockfd);
 
     return 0;
 }
+
+void ftp(int sockfd,struct sockaddr_storage* their_addr){
+	struct packet* Packet = (struct packet*) malloc(sizeof(struct packet));
+	struct frame* Frame = (struct frame*) malloc(sizeof(struct frame));
+	char* packetBuf = (char*) malloc(MAX_PACKET_BUFFER_SIZE);
+	memset(Packet, 0, sizeof(struct packet));
+	memset(Frame, 0, sizeof(struct frame));
+
+	int numbytes = 0;
+	FILE* f = NULL;
+	while(1){
+		socklen_t addr_len = sizeof(*their_addr);
+		if((numbytes = recvfrom(sockfd, packetBuf, MAX_PACKET_BUFFER_SIZE, 0, (struct sockaddr *) &(*their_addr), &addr_len)) == -1){
+			perror("recvfrom");
+			exit(1);
+		}
+		// printf("\n\n");
+		// printf(packetBuf);
+		// printf("\n\n");
+		char colonChar = 0,delimitedTokens[128];
+		int inc = 0;
+		char* bufHead = packetBuf, *bufPrev = packetBuf;
+		while(colonChar != 4){
+			if(*bufHead == ':'){
+				colonChar++;
+				if(colonChar == 1){
+					memcpy(delimitedTokens, bufPrev,inc);
+					delimitedTokens[inc] = '\0';
+					Packet->total_frag = atoi(delimitedTokens);
+				}
+				else if(colonChar == 2){
+					memcpy(delimitedTokens, bufPrev,inc);
+					delimitedTokens[inc] = '\0';
+					Packet->frag_no = atoi(delimitedTokens);
+				}
+				else if(colonChar == 3){
+					memcpy(delimitedTokens, bufPrev,inc);
+					delimitedTokens[inc] = '\0';
+					Packet->size = atoi(delimitedTokens);
+				}
+				else{
+					Packet->filename = bufPrev;
+					*bufHead = '\0';
+				}
+				bufPrev = bufHead+1;
+				inc = 0;
+			}
+			inc++;
+			bufHead++;
+		}
+		
+		// printf("\n\n%d\n%d\n%d\n%s\n\n",Packet->total_frag, Packet->frag_no, Packet->size, Packet->filename);
+
+		if(f == NULL){
+			sprintf(delimitedTokens,"./sent/%s",Packet->filename);
+			f = fopen(delimitedTokens,"wb");
+		}
+		fwrite(bufHead,1,Packet->size,f);
+	
+		Frame->sq_no = 0;
+		Frame->ack = Packet->frag_no;
+
+		if ((numbytes = sendto(sockfd,(struct frame*) Frame, sizeof(struct frame), 0, (struct sockaddr *)&(*their_addr), addr_len)) == -1){
+		    perror("server: sendto");
+		    exit(1);
+		}
+		
+		if(Packet->total_frag == Packet->frag_no) break;
+	}
+	fclose(f);
+}
+

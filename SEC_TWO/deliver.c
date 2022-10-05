@@ -14,7 +14,23 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#define SERVERPORT "4950"    // the port users will be connecting to
+#define MAX_PACKET_BUFFER_SIZE 1500
+void ftp(int sockfd,struct addrinfo *p,char* filename);
+
+struct packet{
+	unsigned int total_frag;
+
+	unsigned int frag_no;
+	unsigned int size;
+	char* filename;
+	char filedata[1000];
+};
+
+struct frame{
+	int frame_kind;
+	int sq_no;
+	int ack;
+};
 
 int main(int argc, char *argv[])
 {
@@ -32,7 +48,7 @@ int main(int argc, char *argv[])
     hints.ai_family = AF_INET; // set to AF_INET to use IPv4
     hints.ai_socktype = SOCK_DGRAM;
 
-    if ((rv = getaddrinfo(argv[1], SERVERPORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(argv[1], argv[2], &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
@@ -53,64 +69,104 @@ int main(int argc, char *argv[])
         return 2;
     }
 
-    FILE* f = fopen(argv[2],"rb");
-    fseek(f, 0L, SEEK_END);
-    int sz = ftell(f);
-    int total_frag = ((int) sz/1000) + 1;
+    char cmd[128];
+    char filename[128];
+	printf("Enter \"ftp\" followed by filename: ");
+    scanf("%s %s",cmd,filename);
 
-    rewind(f);
-    char *fileBuf = (char*) malloc(1001);
-    char *packetBuf = (char*) malloc(1200);
-    char response[2];
-    int inc = 1;
-    while(!feof(f)){
-	    fread(fileBuf,1,1000,f);
-
-	    int packetSize = ((sz - 1000*(inc-1)) >= 1000) ? 1000 : (sz - 1000*(inc-1));
-	    sprintf(packetBuf,"%d:%d:%d:%s:",total_frag,inc,packetSize,argv[2]);
-	    int headerSize = strlen(packetBuf);
-	    memcpy(packetBuf+strlen(packetBuf),fileBuf,1000);
-
-
-	    if ((numbytes = sendto(sockfd, packetBuf, packetSize + headerSize, 0, p->ai_addr, p->ai_addrlen)) == -1) {
+    if(!strcmp("ftp",cmd)){
+	if(access(filename, F_OK) == 0){
+		//file does exist
+	    if ((numbytes = sendto(sockfd, "ftp", 3, 0, p->ai_addr, p->ai_addrlen)) == -1) {
 		perror("client: sendto");
 		exit(1);
 	    }
 
+	    char response[4];
 	    socklen_t addr_len = sizeof p->ai_addr;
-	    if ((numbytes = recvfrom(sockfd, response, 1 , 0, p->ai_addr, &addr_len)) == -1){
+	    if ((numbytes = recvfrom(sockfd, response, 3 , 0,
+		p->ai_addr, &addr_len)) == -1){
 		perror("recvfrom");
 		exit(1);
 	    }
-
-	    if(response[0] == '1'){
-		    printf("Packet %d of %d was Received\n",inc,total_frag);
+	    response[numbytes] = '\0';
+	    if (!strcmp(response, "yes")){
+		printf("A file transfer can start\n");
+		ftp(sockfd,p,filename);
 	    }
-	    else exit(1);
-
-	    memset(fileBuf, 0, 1001);
-	    inc++;
+	    else{ // no
+		exit(1); 
+	    }
+	}
+	else{
+		//file doesnt exist
+		printf("File doesnt exist\n");
+		exit(1);
+	}
     }
-    fclose(f);
+    else{
+	    perror("command: invalid");
+	    exit(1);
+    }
 
     freeaddrinfo(servinfo);
-
-    printf("client: sent %d bytes to %s\n", numbytes, argv[1]);
-    //close(sockfd);
-
-
-
-    printf("client: packet is %d bytes long\n", numbytes);
-    response[numbytes] = '\0';
-    printf("client: packet contains \"%s\"\n", response);
-    
-    char yes[] = "yes";
-    if (!strcmp(response, yes)){
-        printf("A file transfer can start\n");
-    }
-    else{ // no
-        exit(1); 
-    }
+    close(sockfd);
     return 0;
+}
+
+void ftp(int sockfd,struct addrinfo *p,char* filename){
+	struct packet* Packet = (struct packet*) malloc(sizeof(struct packet));
+	struct frame* Frame = (struct frame*) malloc(sizeof(struct frame));
+	char* packetBuf = (char*) malloc(MAX_PACKET_BUFFER_SIZE);
+	memset(Packet, 0, sizeof(struct packet));
+	memset(Frame, 0, sizeof(struct frame));
+
+	FILE* f = fopen(filename,"rb");
+	fseek(f, 0L, SEEK_END);
+	int sz = ftell(f);
+	rewind(f);
+	Packet->total_frag = ((int) (sz - 1)/1000) + 1;
+	Packet->filename = filename;
+	Packet->frag_no = 1;
+
+	int numbytes = 0,ack_recv = 1;
+
+	while(1){
+		if(ack_recv == 1){
+			if(!feof(f)){
+				fread(Packet->filedata,1,1000,f);
+				Packet->size = ((sz - 1000*(Packet->frag_no-1)) >= 1000) ? 1000 : (sz - 1000*(Packet->frag_no-1));
+				sprintf(packetBuf,"%d:%d:%d:%s:", Packet->total_frag, Packet->frag_no, Packet->size, Packet->filename);
+				int headerSize = strlen(packetBuf);
+				memcpy(packetBuf+strlen(packetBuf),Packet->filedata,1000);
+
+				if ((numbytes = sendto(sockfd, packetBuf, Packet->size + headerSize, 0, p->ai_addr, p->ai_addrlen)) == -1) {
+					perror("client: sendto");
+					exit(1);
+				}
+				printf("Sent Packet #%d\n",Packet->frag_no);
+
+				memset(Packet->filedata,0,1000);
+			}
+			else break;
+		}
+
+		socklen_t addr_len = sizeof p->ai_addr;
+		if((numbytes = recvfrom(sockfd, Frame, sizeof(struct frame), 0, p->ai_addr, &addr_len)) == -1){
+			perror("recvfrom");
+			exit(1);
+		}
+
+		if(numbytes > 0 && Frame->sq_no == 0 && Frame->ack == Packet->frag_no){
+			printf("ACK Received for Packet #%d\n",Packet->frag_no);
+			ack_recv = 1;
+		}
+		else{
+			printf("ACK NOT Received for Packet #%d\n",Packet->frag_no);
+			ack_recv = 0;
+		}
+
+		Packet->frag_no++;
+	}
 }
 
